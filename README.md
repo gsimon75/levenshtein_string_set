@@ -110,10 +110,6 @@ So, let's make the cost of inserting to the start and to the end be zero! This w
 But I'd like to consider a shorter match as a better one, so it shouldn't be *exactly* zero, just small enough
 so extra padding characters are the fewer the better, but they still don't add up to an extra editing step.
 
-Finding just the word is enough for displaying it, but as soon as we want to do anything with it, we'd have to
-look it up somewhere else for details (eg. IDs). To make this easier we actually store not the words, but objects of
-the shape `{t: "...", ...}`, so we can affix any arbitrary attributes to the tree entries.
-
 
 ## Future features
 
@@ -150,21 +146,22 @@ think makes sense only if the word list changes rarely and the lookup code runs 
 For this we need to be able to "export" or "serialise" the tree, store it, send it to the input device, there
 we must "import" or "deserialise" it, and ... use it, of course.
 
-The data content of the leaves are the entry objects, the data content of the upper-level nodes are the lower-level
+The data content of the leaves are the strings, the data content of the upper-level nodes are the lower-level
 nodes, so technically it could be a straightforward JSON, like:
 
 ```
 [
-  [], # zero-length subtree
-  [], # 1-length subtree
+  [   # 1-length subtree
+    ...
+  ],
   [   # 2-length subtree
     [   # [ap]m
-      { "t": "am", ... },
-      { "t": "pm", ... },
+      "am",
+      "pm",
     ],
     [   # i[ns]
-      { "t": "in", ... },
-      { "t": "is", ... },
+      "in",
+      "is",
     ],
   ], 
   ...
@@ -175,26 +172,30 @@ The serialisation of StringSets into this form would be simple with an appropria
 direction, the deserialisation is problematic, as there is no way to tell `JSON.parse` to create StringSets and not
 arrays.
 
-It can't even just take a string, parse one object (recursively) from it, and then tell me where it ended, so by
-itself it can't even parse those `{ "t": "am", ...}` entries for us.
-
-But I don't want to throw away the JSON parser, because I don't want to rewrite yet another recursive parser/serialiser
-(remember, the entries can contain nested lists and objects too), so... the only option was to manually generate
-End-of-Record markers after each entry, so we can extract that part and feed it (and only it) to the JSON parser.
+Besides, if we think about data efficiency, this is a bit too verbose, a binary representation would be more concise
+and faster to parse. We can use the control characters SI (Shift In, 0x0f) and SO (Shift Out, 0x0e) instead of the
+brackets and RS (Record Separator, 0x1e) instead of the commas, and then we don't need to worry about enclosing the
+strings in quotes, nor about escaping certain characters in strings. Moreover, the commas between sub-tree
+representations are also superfluent, so the binary representation of the structure above is:
 
 ```
+SI
+  SI        # 1-length subtree
     ...
-    [   # [ap]m
-      { "t": "am", ... }<RS>,
-      { "t": "pm", ... }<RS>,
-    ],
-    ...
+  SO
+  SI        # 2-length subtree
+    SI
+      am RS pm 
+    SO
+    SI
+      in RS is
+    SO
+  SO
+  ...
+SO
 ```
 
-That record separator had to be something that can't occur in JSON, so it's a control character: `RS = 0x1e`.
-
-Ugly as hell and no longer valid as JSON, but it's still compact enough, so as long as I don't get a better idea,
-it stays.
+This is about 4x more compact than the human-readable format, and with bigger datasets it can matter.
 
 
 ## Usage:
@@ -208,9 +209,9 @@ To train and serialise the model:
 const { LevenshteinStringSet } = require("./levenshtein_string_set");
 
 const lss = new LevenshteinStringSet();
-lss.add_entry({ t: "alpha", ... });
-lss.add_entry({ t: "beta", ... });
-lss.add_entry({ t: "gamma", ... });
+lss.add_string("alpha");
+lss.add_string("beta");
+lss.add_string("gamma");
 
 const serialised = lss.serialise();
 ```

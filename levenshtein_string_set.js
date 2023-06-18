@@ -5,7 +5,7 @@ function ldist(a, b) {
     const maxdist = alen + blen;
     // prefix/suffix insertion is almost free: it's worse than without it,
     // but any amount of it still shouldn't cost as much as an edit
-    const mincost = 0.1; //1 / maxdist;
+    const mincost = 1 / maxdist;
 
     const d = Array.from({ length: alen + 1 }, _ => Array.from({ length: blen + 1 }, _ => 0))
     // Meaning: a[0..i] can be transformed into b[0..j] for a cost of d[i][j]
@@ -182,7 +182,7 @@ class StringSet extends StringSetBase {
     add_child(c) {
         // add another StringSet as a child
         if (c.length !== this.length) {
-            throw new Error(`Length of '${c}' does not match cover length ${this.length}`);
+            throw new Error(`Length of '${c}' does not match StringSet length ${this.length}`);
         }
         // update each character set with the corresponding character sets of c
         for (let i = 0; i < this.length; i++) {
@@ -196,7 +196,7 @@ class StringSet extends StringSetBase {
     add_entry(s) {
         // add a entry object as a child
         if (s.t.length !== this.length) {
-            throw new Error(`Length of '${s.t}' does not match cover length ${this.length}`);
+            throw new Error(`Length of '${s.t}' does not match StringSet length ${this.length}`);
         }
         // update each character set with the corresponding character of s.t
         for (let i = 0; i < this.length; i++) {
@@ -259,7 +259,7 @@ class StringSet extends StringSetBase {
         const ssets = Array.from({ length: num_ssets }, _ => new StringSet(this.length));
         const assigned = new Set();
         for (let i = 0; i < num_ssets; i++) {
-            // console.log(`initially adding string "${this.children[best[i]].t}" to cover ${i}`);
+            // console.log(`initially adding string "${this.children[best[i]].t}" to StringSet ${i}`);
             ssets[i].add_entry(this.children[best[i]]);
             assigned.add(best[i]);
         }
@@ -302,7 +302,7 @@ class StringSet extends StringSetBase {
             // console.log(`nearest: ${JSON.stringify(nearest)}, smallest_dist: ${smallest_dist}`);
             // assign it to the nearest set
             unassigned.delete(nearest);
-            // console.log(`adding string "${this.children[nearest.idx].t}" to cover ${target_sset}`);
+            // console.log(`adding string "${this.children[nearest.idx].t}" to StringSet ${target_sset}`);
             ssets[target_sset].add_entry(this.children[nearest.idx]);
             // update the others' distances from a
             unassigned.forEach(r => {

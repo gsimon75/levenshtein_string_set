@@ -55,9 +55,8 @@ async function load_model(model_file_name) {
 
 
 (async () => {
-
-    //await train_model("english.words", "english.lss");
-    //process.exit(0);
+    // await train_model("english.words", "english.lss");
+    // process.exit(0);
 
     const lss = await load_model("english.lss");
 

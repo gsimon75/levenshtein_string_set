@@ -1,11 +1,11 @@
 const fs = require("fs");
 const readline = require("node:readline");
 const readlinePromises = require("node:readline/promises");
-const { LevenshteinStringSet } = require("./levenshtein_string_set");
+const { CaseInsensitiveLevenshteinStringSet } = require("./levenshtein_string_set");
 
 
 async function train_model(wordlist_file_name, model_file_name) {
-    const lss = new LevenshteinStringSet();
+    const lss = new CaseInsensitiveLevenshteinStringSet();
 
     console.log("Training the model...");
     const re_worddef = /^(?<word>.*) \((?<classes>.*)\)$/
@@ -29,7 +29,7 @@ async function train_model(wordlist_file_name, model_file_name) {
 
 
 async function load_model(model_file_name) {
-    const lss = new LevenshteinStringSet();
+    const lss = new CaseInsensitiveLevenshteinStringSet();
     console.log("Loading the model...");
     const dictree = fs.readFileSync(model_file_name, "utf8");
     lss.deserialise(dictree);
@@ -39,10 +39,11 @@ async function load_model(model_file_name) {
 
 
 (async () => {
-    await train_model("english.words", "english.lss");
-    process.exit(0);
+    /*await train_model("english.words", "english.lss");
+    process.exit(0);*/
 
-    const lss = await load_model("english.lss");
+    //const lss = await load_model("english.lss");
+    const lss = await load_model("purchase_invoice_items.lss");
 
     // test the model
     const rl_stdin = readlinePromises.createInterface({

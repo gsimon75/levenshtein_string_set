@@ -1,41 +1,3 @@
-function ldist(a, b) {
-    // plain Levenshtein-distance
-    const alen = a.length;
-    const blen = b.length;
-    const maxdist = alen + blen;
-    // prefix/suffix insertion is almost free: it's worse than without it,
-    // but any amount of it still shouldn't cost as much as an edit
-    const mincost = 1 / maxdist;
-
-    const d = Array.from({ length: alen + 1 }, _ => Array.from({ length: blen + 1 }, _ => 0))
-    // Meaning: a[0..i] can be transformed into b[0..j] for a cost of d[i][j]
-
-    for (let i = 0; i <= alen; i++) {
-        d[i][0] = i;
-        // from a[0..i] to get b[0..0] we need i deletions, all of which costs 1
-    }
-    for (let j = 0; j <= blen; j++) {
-        d[0][j] = j * mincost;
-        // from a[0..0] to get b[j] we need j insertions, but inserting to the front is almost free
-    }
-
-    // now fill the matrix by re-using the already known distances
-    for (let i = 1; i <= alen; i++) {
-        for (let j = 1; j <= blen; j++) {
-            /* "a[0..i) to b[0..j)" can be achieved by:
-            - solving "a[0..i-1) to b[0..j-1)" and then replacing a[i-1] with b[j-1]: cost = (a[j-1] === b[j-1]) ? 0 : 1
-            - solving "a[0..i) to b[0..j-1)" and then appending b[j-1]: cost = almost free
-            - deleting a[i-1] and then solving "a[0..i-1) to b[0..j]": cost = 1 */
-            const cost_repl = d[i - 1][j - 1] + ((a[i - 1] === b[j - 1]) ? 0 : 1);
-            const cost_ins = d[i][j - 1] + ((i == alen) ? mincost : 1);
-            const cost_del = d[i - 1][j] + 1;
-            d[i][j] = Math.min(cost_repl, cost_ins, cost_del);
-        }
-    }
-    return d[alen][blen]
-}
-
-
 class PrioQueue {
     _queue = [];
 
@@ -84,6 +46,48 @@ class StringSetBase {
         this.num_entries = 0; // total entries in the sub-tree of this set
         this.children = [];
     }
+
+    static index_xform = x => x;
+
+    static ldist(a, b) {
+        a = this.index_xform(a);
+        b = this.index_xform(b);
+        // plain Levenshtein-distance
+        const alen = a.length;
+        const blen = b.length;
+        const maxdist = alen + blen;
+        // prefix/suffix insertion is almost free: it's worse than without it,
+        // but any amount of it still shouldn't cost as much as an edit
+        const mincost = 1 / maxdist;
+
+        const d = Array.from({ length: alen + 1 }, _ => Array.from({ length: blen + 1 }, _ => 0))
+        // Meaning: a[0..i] can be transformed into b[0..j] for a cost of d[i][j]
+
+        for (let i = 0; i <= alen; i++) {
+            d[i][0] = i;
+            // from a[0..i] to get b[0..0] we need i deletions, all of which costs 1
+        }
+        for (let j = 0; j <= blen; j++) {
+            d[0][j] = j * mincost;
+            // from a[0..0] to get b[j] we need j insertions, but inserting to the front is almost free
+        }
+
+        // now fill the matrix by re-using the already known distances
+        for (let i = 1; i <= alen; i++) {
+            for (let j = 1; j <= blen; j++) {
+                /* "a[0..i) to b[0..j)" can be achieved by:
+                - solving "a[0..i-1) to b[0..j-1)" and then replacing a[i-1] with b[j-1]: cost = (a[j-1] === b[j-1]) ? 0 : 1
+                - solving "a[0..i) to b[0..j-1)" and then appending b[j-1]: cost = almost free
+                - deleting a[i-1] and then solving "a[0..i-1) to b[0..j]": cost = 1 */
+                const cost_repl = d[i - 1][j - 1] + ((a[i - 1] === b[j - 1]) ? 0 : 1);
+                const cost_ins = d[i][j - 1] + ((i === alen) ? mincost : 1);
+                const cost_del = d[i - 1][j] + 1;
+                d[i][j] = Math.min(cost_repl, cost_ins, cost_del);
+            }
+        }
+        return d[alen][blen]
+    }
+
 
     serialise() {
         if (this.is_leaf) {
@@ -141,33 +145,41 @@ class StringSet extends StringSetBase {
         if (s.length !== this.length) {
             throw new Error(`Length of '${s}' does not match cover length ${this.length}`);
         }
+        const ls = this.constructor.index_xform(s);
         // update each character set with the corresponding character of s
         for (let i = 0; i < this.length; i++) {
-            this.charsets[i].add(s[i]);
+            this.charsets[i].add(ls[i]);
         }
-        this.num_entries++;
 
+        let changed;
         if (this.is_leaf) {
-            this.children.push(s);
-            this._width = null;
-            if (this.width >= this.constructor.WIDTH_MAX) {
-                this.split();
+            changed = (this.children.indexOf(s) < 0);
+            if (changed) {
+                this.children.push(s);
+                this._width = null;
+                if (this.width >= this.constructor.WIDTH_MAX) {
+                    this.split();
+                }
             }
         }
         else {
             // find the child nearest to s and add s to that
             let nearest_child = this.children[0];
-            let nearest_child_dist = nearest_child.distance(s);
+            let nearest_child_dist = nearest_child.distance(ls);
             for (let i = 1; i < this.children.length; i++) {
                 const child = this.children[i];
-                const dist = child.distance(s);
+                const dist = child.distance(ls);
                 if (dist < nearest_child_dist) {
                     nearest_child = child;
                     nearest_child_dist = dist;
                 }
             }
-            nearest_child.add_string(s);
+            changed = nearest_child.add_string(s);
         }
+        if (changed) {
+            this.num_entries++;
+        }
+        return changed;
     }
 
     add(x) {
@@ -190,11 +202,11 @@ class StringSet extends StringSetBase {
         let best = Array(num_ssets);
         best[0] = 0;
         best[1] = 1;
-        let biggest_dist = ldist(this.children[best[0]], this.children[best[1]]);
+        let biggest_dist = this.constructor.ldist(this.children[best[0]], this.children[best[1]]);
         d[best[0]][best[1]] = d[best[1]][best[0]] = biggest_dist;
         for (let i = 0; i < (n - 1); i++) {
             for (let j = i + 1; j < n; j++) {
-                const dist = ldist(this.children[i], this.children[j]);
+                const dist = this.constructor.ldist(this.children[i], this.children[j]);
                 d[i][j] = d[j][i] = dist;
                 if (dist > biggest_dist) {
                     best[0] = i;
@@ -274,7 +286,7 @@ class StringSet extends StringSetBase {
         for (let i = 1; i <= alen; i++) {
             for (let j = 1; j <= this.length; j++) {
                 const cost_repl = d[i - 1][j - 1] + (this.charsets[j - 1].has(a[i - 1]) ? 0 : 1);
-                const cost_ins = d[i][j - 1] + ((i == alen) ? mincost : 1);
+                const cost_ins = d[i][j - 1] + ((i === alen) ? mincost : 1);
                 const cost_del = d[i - 1][j] + 1;
                 d[i][j] = Math.min(cost_repl, cost_ins, cost_del);
             }
@@ -369,18 +381,22 @@ class LevenshteinStringSet extends StringSetBase {
         if (!(length in this.children)) {
             this.children[length] = new StringSet(length);
         }
-        this.num_entries++;
-        this.children[length].add_string(s);
+        const result = this.children[length].add_string(s);
+        if (result) {
+            this.num_entries++;
+        }
+        return result;
     }
 
     *lookup(s) {
+        s = this.constructor.index_xform(s);
         const q = new PrioQueue();
         q.push(0, this);
         while (!q.is_empty) {
             const cc = q.pop();
             if (cc.obj instanceof StringSetBase) {
                 cc.obj.children.forEach(c => {
-                    const cost = (c instanceof StringSet) ? c.distance(s) : ldist(s, c);
+                    const cost = (c instanceof StringSet) ? c.distance(s) : this.constructor.ldist(s, c);
                     q.push(cost, c);
                 });
             }
@@ -394,7 +410,14 @@ class LevenshteinStringSet extends StringSetBase {
     }
 }
 
+
+class CaseInsensitiveLevenshteinStringSet extends LevenshteinStringSet {
+    static index_xform = x => x.toLowerCase();
+}
+
+
 module.exports = {
     PrioQueue,
     LevenshteinStringSet,
+    CaseInsensitiveLevenshteinStringSet,
 };

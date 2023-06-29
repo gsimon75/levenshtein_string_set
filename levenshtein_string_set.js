@@ -42,14 +42,14 @@ class PrioQueue {
 
 class StringSetBase {
     // the top level of the L-tree is different, so we need a base class for common things
-    constructor() {
+    constructor(index_xform) {
         this.num_entries = 0; // total entries in the sub-tree of this set
         this.children = [];
+        this.index_xform = index_xform || (x => x);
     }
 
-    static index_xform = x => x;
 
-    static ldist(a, b) {
+    ldist(a, b) {
         a = this.index_xform(a);
         b = this.index_xform(b);
         // plain Levenshtein-distance
@@ -60,7 +60,7 @@ class StringSetBase {
         // but any amount of it still shouldn't cost as much as an edit
         const mincost = 1 / maxdist;
 
-        const d = Array.from({ length: alen + 1 }, _ => Array.from({ length: blen + 1 }, _ => 0))
+        const d = Array.from({ length: alen + 1 }, () => Array.from({ length: blen + 1 }, () => 0))
         // Meaning: a[0..i] can be transformed into b[0..j] for a cost of d[i][j]
 
         for (let i = 0; i <= alen; i++) {
@@ -97,6 +97,15 @@ class StringSetBase {
         // children are StringSets: SI child0 child1 ... SO
         return `\x0f${this.children.filter(c => c).map(c => c.serialise()).join("")}\x0e`;
     }
+
+    toString() {
+        if (this.is_leaf) {
+            return `(${this.children.join(", ")})`;
+        }
+        else {
+            return "TOP-LEVEL";
+        }
+    }
 }
 
 
@@ -104,11 +113,18 @@ class StringSet extends StringSetBase {
     // a sequence of character sets that "cover" a number of equal-length strings
     static WIDTH_MAX = 12; // average size of character sets at which we split the set
 
-    constructor(length) {
-        super();
+    constructor(index_xform, length) {
+        super(index_xform);
         this.length = length;
-        this.charsets = Array.from({ length: length }, _ => new Set());
+        this.charsets = Array.from({ length: length }, () => new Set());
         this._width = null;
+    }
+
+    toString() {
+        function charset_str(cs) {
+            return `[${Array.from(cs).join("")}]`;
+        }
+        return `(${this.charsets.map(charset_str).join("")})`;
     }
 
     get is_leaf() {
@@ -145,7 +161,7 @@ class StringSet extends StringSetBase {
         if (s.length !== this.length) {
             throw new Error(`Length of '${s}' does not match cover length ${this.length}`);
         }
-        const ls = this.constructor.index_xform(s);
+        const ls = this.index_xform(s);
         // update each character set with the corresponding character of s
         for (let i = 0; i < this.length; i++) {
             this.charsets[i].add(ls[i]);
@@ -195,18 +211,18 @@ class StringSet extends StringSetBase {
         // we may assume that this is a leaf node, i.e. its children are the strings
         const n = this.children.length;
         // the pairwise distances of children - we'll need these anyway
-        const d = Array.from({ length: n }, _ => Array.from({ length: n }, _ => 0));
+        const d = Array.from({ length: n }, () => Array.from({ length: n }, () => 0));
         // create 2 StringSets, distribute the children among them, each to the nearest one, in the order of distance from the sets
         const num_ssets = 2;
         // find the two farthest children, they will be the core of the 2 StringSets
         let best = Array(num_ssets);
         best[0] = 0;
         best[1] = 1;
-        let biggest_dist = this.constructor.ldist(this.children[best[0]], this.children[best[1]]);
+        let biggest_dist = this.ldist(this.children[best[0]], this.children[best[1]]);
         d[best[0]][best[1]] = d[best[1]][best[0]] = biggest_dist;
         for (let i = 0; i < (n - 1); i++) {
             for (let j = i + 1; j < n; j++) {
-                const dist = this.constructor.ldist(this.children[i], this.children[j]);
+                const dist = this.ldist(this.children[i], this.children[j]);
                 d[i][j] = d[j][i] = dist;
                 if (dist > biggest_dist) {
                     best[0] = i;
@@ -215,7 +231,7 @@ class StringSet extends StringSetBase {
                 }
             }
         }
-        const ssets = Array.from({ length: num_ssets }, _ => new StringSet(this.length));
+        const ssets = Array.from({ length: num_ssets }, () => new StringSet(this.index_xform, this.length));
         const assigned = new Set();
         for (let i = 0; i < num_ssets; i++) {
             ssets[i].add_string(this.children[best[i]]);
@@ -274,7 +290,7 @@ class StringSet extends StringSetBase {
         const maxdist = alen + this.length;
         const mincost = 1 / maxdist;
 
-        const d = Array.from({ length: alen + 1 }, _ => Array.from({ length: this.length + 1 }, _ => 0));
+        const d = Array.from({ length: alen + 1 }, () => Array.from({ length: this.length + 1 }, () => 0));
 
         for (let i = 0; i <= alen; i++) {
             d[i][0] = i;
@@ -294,7 +310,8 @@ class StringSet extends StringSetBase {
         return d[alen][this.length]
     }
 
-    static deserialise(dictree, pos) {
+    static deserialise(index_xform, dictree, pos) {
+        // must be static, because we know the length only after parsing the 1st child
         // see serialise for the format
         const n = dictree.length;
         if (dictree[pos] !== "\x0f") { // SI
@@ -313,7 +330,7 @@ class StringSet extends StringSetBase {
             let c;
             if (dictree[pos] === "\x0f") { // SI
                 // child is a StringSet
-                ({ c, pos } = StringSet.deserialise(dictree, pos));
+                ({ c, pos } = StringSet.deserialise(index_xform, dictree, pos));
             }
             else {
                 // child is a string
@@ -333,7 +350,7 @@ class StringSet extends StringSetBase {
             }
 
             if (!self) {
-                self = new StringSet(c.length);
+                self = new StringSet(index_xform, c.length);
             }
             self.add(c);
         }
@@ -366,7 +383,7 @@ class LevenshteinStringSet extends StringSetBase {
             }
             if (dictree[pos] === "\x0f") { // SI
                 let c;
-                ({ c, pos } = StringSet.deserialise(dictree, pos));
+                ({ c, pos } = StringSet.deserialise(this.index_xform, dictree, pos));
                 this.children[c.length] = c;
             }
             else {
@@ -379,7 +396,7 @@ class LevenshteinStringSet extends StringSetBase {
     add_string(s) {
         const length = s.length;
         if (!(length in this.children)) {
-            this.children[length] = new StringSet(length);
+            this.children[length] = new StringSet(this.index_xform, length);
         }
         const result = this.children[length].add_string(s);
         if (result) {
@@ -389,14 +406,16 @@ class LevenshteinStringSet extends StringSetBase {
     }
 
     *lookup(s) {
-        s = this.constructor.index_xform(s);
+        s = this.index_xform(s);
         const q = new PrioQueue();
         q.push(0, this);
         while (!q.is_empty) {
             const cc = q.pop();
+            // console.log(`> Pop; cost=${cc.prio}, item=${cc.obj}`);
             if (cc.obj instanceof StringSetBase) {
                 cc.obj.children.forEach(c => {
-                    const cost = (c instanceof StringSet) ? c.distance(s) : this.constructor.ldist(s, c);
+                    const cost = (c instanceof StringSet) ? c.distance(s) : this.ldist(s, c);
+                    // console.log(`>> Push; cost=${cost}, item=${c}`);
                     q.push(cost, c);
                 });
             }
@@ -412,7 +431,9 @@ class LevenshteinStringSet extends StringSetBase {
 
 
 class CaseInsensitiveLevenshteinStringSet extends LevenshteinStringSet {
-    static index_xform = x => x.toLowerCase();
+    constructor() {
+        super(x => x.toLowerCase());
+    }
 }
 
 

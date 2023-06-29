@@ -18,12 +18,17 @@ async function train_model(wordlist_file_name, model_file_name) {
         if (m) {
             lss.add_string(m.groups.word);
         }
+        else {
+            lss.add_string(line);
+        }
     }
     console.log("Ready...");
 
-    const ofs = fs.openSync(model_file_name, "w", 0o600);
-    fs.writeFileSync(ofs, lss.serialise());
-    fs.closeSync(ofs);
+    if (model_file_name) {
+        const ofs = fs.openSync(model_file_name, "w", 0o600);
+        fs.writeFileSync(ofs, lss.serialise());
+        fs.closeSync(ofs);
+    }
     return lss;
 }
 
@@ -32,18 +37,18 @@ async function load_model(model_file_name) {
     const lss = new CaseInsensitiveLevenshteinStringSet();
     console.log("Loading the model...");
     const dictree = fs.readFileSync(model_file_name, "utf8");
-    lss.deserialise(dictree);
+    const lss = CaseInsensitiveLevenshteinStringSet.deserialise(dictree);
     console.log("Ready...");
     return lss;
 }
 
 
 (async () => {
-    /*await train_model("english.words", "english.lss");
-    process.exit(0);*/
+    const lss = await train_model("test.words");
+    /*process.exit(0);*/
 
     //const lss = await load_model("english.lss");
-    const lss = await load_model("purchase_invoice_items.lss");
+    //const lss = await load_model("purchase_invoice_items.lss");
 
     // test the model
     const rl_stdin = readlinePromises.createInterface({
